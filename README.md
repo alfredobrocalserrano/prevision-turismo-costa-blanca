@@ -3,9 +3,33 @@
 ¿Cuántas pernoctaciones hoteleras tendrán Benidorm y la Costa Blanca en los próximos
 1–12 meses, y qué factores lo explican?
 
-> Estado: **fase 2 de 5 (análisis exploratorio)** completada.
+> Estado: **fase 3 de 5 (modelos de referencia)** completada.
 
 ![Pernoctaciones hoteleras mensuales en la Costa Blanca](outputs/figuras/01_serie_completa.png)
+
+## Resultados de los modelos de referencia
+
+Detalle completo en [`notebooks/03_modelos_base.ipynb`](notebooks/03_modelos_base.ipynb).
+Validación de origen móvil: en cada mes se entrena solo con los datos de entonces y se prevén los
+12 meses siguientes. Se evalúa en dos periodos.
+
+| MAPE (previsiones a 1–12 meses) | 2015–2019 | 2023–2026 |
+|---|---|---|
+| Ingenuo estacional ("igual que hace un año") | 4,74 % | 4,50 % |
+| ETS (Holt-Winters) | 4,62 % | 3,61 % |
+| SARIMA (1,0,0)(1,1,1)₁₂ | 5,28 % | **3,34 %** |
+| SARIMAX + Semana Santa | 4,61 % | 3,61 % |
+| **Combinación ETS + SARIMAX** | **4,24 %** | 3,48 % |
+
+- Ningún modelo gana en los dos periodos; la **combinación** es la más robusta y es el listón para la fase 4.
+- El error apenas crece con el horizonte (3,25 % a 1 mes vista, 3,73 % a 12).
+- Todos se quedan cortos en los años de crecimiento fuerte (2016 y 2024).
+- La Semana Santa mejora mucho marzo y abril (de 5,3 % a 3,8 % en 2015–2019).
+
+![Previsión oct 2026 – sep 2027](outputs/figuras/14_prevision_2026_2027.png)
+
+Previsión para octubre de 2026 – septiembre de 2027: **18,35 millones** de pernoctaciones (+0,5 %),
+en [`outputs/prevision_2026_2027.csv`](outputs/prevision_2026_2027.csv).
 
 ## Hallazgos del análisis exploratorio
 
@@ -77,16 +101,16 @@ python src/descarga.py buscar 2039 "Costa"      # 2039 = zonas turísticas
 | `calendario` | días del mes, fines de semana, Semana Santa, mes de Pascua, marca COVID |
 | `descargas` | registro de cada descarga (solo en DuckDB) |
 
-`outputs/figuras/` guarda los gráficos del análisis y `outputs/baseline_ingenuo.csv` el error del
-modelo de referencia.
+`outputs/` guarda las figuras, los resultados del backtesting (`backtest_fase3.csv`) y la previsión
+(`prevision_2026_2027.csv`).
 
 ## Estructura
 
 ```
 ├── data/          processed/ (CSV, incluidos para poder abrir el notebook sin descargar nada)
 │                  raw/ (JSON originales) y turismo.duckdb se generan con descarga.py y no se suben
-├── notebooks/     02_eda.ipynb · 03_baselines · 04_lightgbm (próximas fases)
-├── src/           descarga.py
+├── notebooks/     02_eda.ipynb · 03_modelos_base.ipynb · 04_lightgbm (próxima fase)
+├── src/           descarga.py · backtest.py (validación de origen móvil) · modelos_base.py
 ├── tests/
 └── outputs/       figuras y métricas
 ```
@@ -95,6 +119,6 @@ modelo de referencia.
 
 1. ~~Datos: descarga y validación~~
 2. ~~Análisis exploratorio~~
-3. Modelos de referencia: ingenuo estacional, SARIMA y ETS, con validación de origen móvil
+3. ~~Modelos de referencia: ingenuo estacional, ETS, SARIMA y combinación, con validación de origen móvil~~
 4. LightGBM con retardos, calendario y aeropuerto; intervalos de predicción; interpretación con SHAP
 5. App de previsión y sección en el portfolio
