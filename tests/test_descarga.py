@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from descarga import a_ancho, a_long, calendario, validar  # noqa: E402
+from descarga import a_ancho, a_long, aeropuerto_a_tabla, calendario, validar  # noqa: E402
 
 
 def _serie(valores, desde="M01", anyo=2024):
@@ -48,3 +48,23 @@ def test_validar_detecta_huecos():
     ancho = a_ancho(long).drop(index=1)  # quitamos febrero
     avisos = validar(long, ancho)
     assert any("Faltan 1 meses" in a for a in avisos)
+
+
+def test_eurostat_jsonstat():
+    # Estructura mínima de una respuesta JSON-stat: 3 coberturas x 2 meses
+    js = {
+        "id": ["freq", "tra_cov", "time"],
+        "size": [1, 3, 2],
+        "dimension": {
+            "tra_cov": {"category": {"index": {"TOTAL": 0, "NAT": 1, "INTL": 2}}},
+            "time": {"category": {"index": {"2025-07": 0, "2025-08": 1}}},
+        },
+        # posición = cobertura * 2 + mes
+        "value": {"0": 100, "1": 110, "2": 30, "3": 32, "4": 70, "5": 78},
+        "status": {"1": "u"},
+    }
+    t = aeropuerto_a_tabla(js)
+    assert t.aeropuerto_pasajeros_total.tolist() == [100, 110]
+    assert t.aeropuerto_pasajeros_nac.tolist() == [30, 32]
+    assert t.aeropuerto_pasajeros_intl.tolist() == [70, 78]
+    assert t.aeropuerto_baja_fiabilidad.tolist() == [False, True]

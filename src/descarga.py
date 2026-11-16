@@ -1,23 +1,26 @@
 """
-Fase 1 · Descarga de datos
-==========================
+Descarga de datos
+=================
 
-Descarga de la API JSON del INE (Encuesta de Ocupación Hotelera, EOH) las series
-mensuales de la Costa Blanca, Benidorm y la provincia de Alicante, las valida y
-las guarda en DuckDB y en CSV. Genera además una tabla de calendario
-(fines de semana, Semana Santa, periodo COVID).
+1. INE · Encuesta de Ocupación Hotelera (EOH): series mensuales de la Costa Blanca,
+   Benidorm y la provincia de Alicante.
+2. Eurostat · pasajeros mensuales del aeropuerto de Alicante-Elche (tabla avia_paoa).
+3. Calendario: fines de semana, Semana Santa y periodo COVID.
+
+Valida los datos y los guarda en DuckDB y en CSV.
 
 Uso:
     python src/descarga.py                 # descarga todo y guarda en data/
     python src/descarga.py buscar 2078 Torrevieja   # buscar más series en una tabla del INE
 
 Salidas:
-    data/turismo.duckdb       tablas eoh_long, eoh_mensual, calendario, descargas
-    data/processed/eoh_mensual.csv
-    data/processed/calendario.csv
+    data/turismo.duckdb       tablas eoh_long, eoh_mensual, aeropuerto, calendario,
+                              dataset_mensual (todo junto, para modelar), descargas
+    data/processed/*.csv      las mismas tablas en CSV
 
-La API del INE no necesita clave. Documentación:
-https://www.ine.es/dyngs/DAB/index.htm?cid=1099
+Ninguna de las dos API necesita clave:
+    INE:      https://www.ine.es/dyngs/DAB/index.htm?cid=1099
+    Eurostat: https://ec.europa.eu/eurostat/web/user-guides/data-browser/api-data-access
 """
 
 from __future__ import annotations
@@ -72,9 +75,21 @@ SERIES: dict[str, tuple[str, str, str]] = {
     "EOT1702": ("prov_alicante", "pernoctaciones", "ext"),
 }
 
-# Meses con restricciones por la pandemia. Es una decisión de análisis:
-# revísala en el EDA (fase 2) y documenta el criterio en el README.
-COVID_INICIO, COVID_FIN = "2020-03-01", "2021-12-01"
+# Meses afectados por la pandemia. Criterio del EDA (notebooks/02_eda.ipynb, sección 7):
+# de marzo de 2020 a marzo de 2022 (ómicron en el primer trimestre de 2022). Desde abril
+# de 2022 los meses de temporada vuelven al 93–100 % de 2019.
+COVID_INICIO, COVID_FIN = "2020-03-01", "2022-03-01"
+
+# Eurostat · pasajeros por aeropuerto. ES_LEAL = Alicante-Elche Miguel Hernández.
+# Totales, nacionales e internacionales, todo tipo de vuelo (regular y chárter).
+EUROSTAT = (
+    "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/avia_paoa"
+    "?format=JSON&lang=EN&freq=M&unit=PAS&tra_meas=PAS_CRD&rep_airp=ES_LEAL"
+    "&schedule=TOTAL&tra_cov=TOTAL&tra_cov=NAT&tra_cov=INTL"
+)
+EUROSTAT_COLS = {"TOTAL": "aeropuerto_pasajeros_total", "NAT": "aeropuerto_pasajeros_nac",
+                 "INTL": "aeropuerto_pasajeros_intl"}
+EUROSTAT_JSON = "eurostat_avia_paoa_ES_LEAL.json"
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +110,41 @@ def _get(url: str, intentos: int = 4, timeout: int = 30):
 def descargar_serie(codigo: str) -> dict:
     """Devuelve la serie completa con salida 'amigable' (tip=A)."""
     return _get(f"{API}/DATOS_SERIE/{codigo}?nult=1000&tip=A")
+
+
+def descargar_aeropuerto() -> dict:
+    """Respuesta JSON-stat de Eurostat con los pasajeros de Alicante-Elche."""
+    return _get(EUROSTAT, timeout=60)
+
+
+def aeropuerto_a_tabla(js: dict) -> pd.DataFrame:
+    """Convierte la respuesta JSON-stat de Eurostat en una tabla mensual.
+
+    En JSON-stat los valores vienen en un diccionario {posición: valor}, donde la
+    posición se calcula a partir del índice de cada dimensión (orden de `id`,
+    tamaños en `size`). Aquí solo varían 'tra_cov' y 'time'.
+    """
+    ids, size = js["id"], js["size"]
+    strides = [1] * len(ids)
+    for i in range(len(ids) - 2, -1, -1):
+        strides[i] = strides[i + 1] * size[i + 1]
+    pos = {d: i for i, d in enumerate(ids)}
+    cov_idx = js["dimension"]["tra_cov"]["category"]["index"]
+    time_idx = js["dimension"]["time"]["category"]["index"]
+    estado = js.get("status", {})
+
+    filas = []
+    for mes, ti in time_idx.items():
+        fila = {"fecha": pd.Timestamp(f"{mes}-01")}
+        baja_fiabilidad = False
+        for cov, ci in cov_idx.items():
+            k = str(ci * strides[pos["tra_cov"]] + ti * strides[pos["time"]])
+            fila[EUROSTAT_COLS[cov]] = js["value"].get(k)
+            baja_fiabilidad |= estado.get(k) == "u"
+        fila["aeropuerto_baja_fiabilidad"] = baja_fiabilidad
+        filas.append(fila)
+    df = pd.DataFrame(filas)
+    return df.dropna(subset=list(EUROSTAT_COLS.values()), how="all").reset_index(drop=True)
 
 
 def buscar_series(tabla: int, patron: str) -> list[tuple[str, str]]:
@@ -191,12 +241,11 @@ def validar(long: pd.DataFrame, ancho: pd.DataFrame) -> list[str]:
     if len(faltan):
         avisos.append(f"Faltan {len(faltan)} meses en la tabla: {list(faltan.strftime('%Y-%m'))}")
 
-    # 2. Valores vacíos por serie (esperados: may–jun 2020 en zonas y puntos)
-    nulos = long[long.valor.isna()].groupby(["ambito", "variable", "residencia"]).fecha.apply(
-        lambda s: ", ".join(s.dt.strftime("%Y-%m"))
-    )
-    for (amb, var, res), meses in nulos.items():
-        avisos.append(f"Vacíos en {amb}/{var}/{res}: {meses}")
+    # 2. Valores vacíos (esperados: may–jun 2020 en zona y punto turístico, feb 2021 en Benidorm)
+    vacios = long[long.valor.isna()]
+    for amb, g in vacios.groupby("ambito"):
+        meses = ", ".join(sorted(g.fecha.dt.strftime("%Y-%m").unique()))
+        avisos.append(f"Meses vacíos en {amb} ({g.codigo.nunique()} series): {meses}")
 
     # 3. Total provincial = residentes en España + extranjero
     for var in ("viajeros", "pernoctaciones"):
@@ -215,31 +264,48 @@ def validar(long: pd.DataFrame, ancho: pd.DataFrame) -> list[str]:
     return avisos
 
 
+def validar_aeropuerto(aero: pd.DataFrame) -> list[str]:
+    avisos = []
+    t, n, i = (EUROSTAT_COLS[k] for k in ("TOTAL", "NAT", "INTL"))
+    dif = (aero[t] - aero[n] - aero[i]).abs() / aero[t]
+    if (dif > 0.01).any():
+        avisos.append(f"aeropuerto: total ≠ nacional + internacional (>1 %) en {int((dif > 0.01).sum())} meses")
+    esperado = pd.date_range(aero.fecha.min(), aero.fecha.max(), freq="MS")
+    faltan = esperado.difference(aero.fecha)
+    if len(faltan):
+        avisos.append(f"aeropuerto: faltan {len(faltan)} meses")
+    if aero.aeropuerto_baja_fiabilidad.any():
+        f = aero[aero.aeropuerto_baja_fiabilidad].fecha
+        avisos.append(f"aeropuerto: Eurostat marca {len(f)} meses como poco fiables "
+                      f"({f.min():%Y-%m} → {f.max():%Y-%m})")
+    return avisos
+
+
 # ---------------------------------------------------------------------------
 # Guardado
 # ---------------------------------------------------------------------------
-def guardar(long: pd.DataFrame, ancho: pd.DataFrame, cal: pd.DataFrame, origen: str) -> None:
+def guardar(tablas: dict[str, pd.DataFrame], origen: str, ultimo_mes, n_series: int) -> None:
+    """Guarda cada tabla en DuckDB (fecha como DATE) y en data/processed/<tabla>.csv."""
     PROCESSED.mkdir(parents=True, exist_ok=True)
     ahora = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with duckdb.connect(str(DB)) as con:
-        con.register("t_long", long)
-        con.register("t_ancho", ancho)
-        con.register("t_cal", cal)
-        con.execute("CREATE OR REPLACE TABLE eoh_long AS SELECT * REPLACE (fecha::DATE AS fecha) FROM t_long")
-        con.execute("CREATE OR REPLACE TABLE eoh_mensual AS SELECT * REPLACE (fecha::DATE AS fecha) FROM t_ancho ORDER BY fecha")
-        con.execute("CREATE OR REPLACE TABLE calendario AS SELECT * REPLACE (fecha::DATE AS fecha) FROM t_cal ORDER BY fecha")
+        for nombre, df in tablas.items():
+            con.register("t", df)
+            con.execute(
+                f"CREATE OR REPLACE TABLE {nombre} AS "
+                "SELECT * REPLACE (fecha::DATE AS fecha) FROM t ORDER BY fecha"
+            )
+            con.unregister("t")
         con.execute(
             "CREATE TABLE IF NOT EXISTS descargas "
             "(descargado_en VARCHAR, origen VARCHAR, ultimo_mes DATE, n_series INTEGER)"
         )
-        con.execute(
-            "INSERT INTO descargas VALUES (?, ?, ?, ?)",
-            [ahora, origen, ancho.fecha.max().date(), long.codigo.nunique()],
-        )
+        con.execute("INSERT INTO descargas VALUES (?, ?, ?, ?)", [ahora, origen, ultimo_mes, n_series])
 
-    ancho.to_csv(PROCESSED / "eoh_mensual.csv", index=False)
-    cal.to_csv(PROCESSED / "calendario.csv", index=False)
+    for nombre, df in tablas.items():
+        if nombre != "eoh_long":
+            df.to_csv(PROCESSED / f"{nombre}.csv", index=False)
 
 
 # ---------------------------------------------------------------------------
@@ -263,16 +329,41 @@ def ejecutar(desde_json: Path | None = None) -> pd.DataFrame:
     cal = calendario(ancho.fecha.min().strftime("%Y-%m-%d"), ancho.fecha.max().strftime("%Y-%m-%d"))
     ancho = ancho.merge(cal[["fecha", "covid"]], on="fecha", how="left")
 
-    avisos = validar(long, ancho)
-    guardar(long, ancho, cal, origen=str(desde_json) if desde_json else API)
+    # Aeropuerto (Eurostat)
+    if desde_json:
+        js = json.loads((desde_json / EUROSTAT_JSON).read_text(encoding="utf-8"))
+    else:
+        js = descargar_aeropuerto()
+        (RAW / EUROSTAT_JSON).write_text(json.dumps(js), encoding="utf-8")
+    aero = aeropuerto_a_tabla(js)
+    print(f"  ✓ Eurostat  aeropuerto Alicante-Elche ({aero.fecha.min():%Y-%m} → {aero.fecha.max():%Y-%m})")
 
-    print(f"\n{len(SERIES)} series · {len(ancho)} meses "
-          f"({ancho.fecha.min():%Y-%m} → {ancho.fecha.max():%Y-%m}) · guardado en {DB.relative_to(RAIZ)}")
+    # Tabla para modelar: un mes por fila con INE + aeropuerto + calendario.
+    # El aeropuerto va unos meses por detrás del INE: esos meses quedan vacíos.
+    dataset = (
+        ancho.drop(columns="covid")
+        .merge(aero, on="fecha", how="left")
+        .merge(cal, on="fecha", how="left")
+    )
+
+    avisos = validar(long, ancho) + validar_aeropuerto(aero)
+    guardar(
+        {"eoh_long": long, "eoh_mensual": ancho, "aeropuerto": aero,
+         "calendario": cal, "dataset_mensual": dataset},
+        origen=str(desde_json) if desde_json else f"{API} + Eurostat avia_paoa",
+        ultimo_mes=ancho.fecha.max().date(),
+        n_series=long.codigo.nunique() + len(EUROSTAT_COLS),
+    )
+
+    print(f"\n{len(SERIES)} series del INE · {len(ancho)} meses "
+          f"({ancho.fecha.min():%Y-%m} → {ancho.fecha.max():%Y-%m})")
+    print(f"Aeropuerto: {len(aero)} meses · tabla para modelar: data/processed/dataset_mensual.csv")
+    print(f"Guardado en {DB.relative_to(RAIZ)}")
     if avisos:
         print("\nAvisos de validación:")
         for a in avisos:
             print("  ·", a)
-    return ancho
+    return dataset
 
 
 def main(argv: list[str] | None = None) -> None:
