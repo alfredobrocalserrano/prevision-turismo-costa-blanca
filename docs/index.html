@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Previsión de pernoctaciones hoteleras · Costa Blanca</title>
+<meta name="description" content="Previsión mensual de pernoctaciones hoteleras en la Costa Blanca para los próximos 12 meses, con datos del INE, LightGBM + SARIMAX y actualización automática cada mes.">
+<meta property="og:title" content="¿Cuántas pernoctaciones tendrá la Costa Blanca?">
+<meta property="og:description" content="Previsión a 12 meses con datos del INE, actualizada automáticamente cada mes.">
+<meta name="theme-color" content="#f4f4f1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23111'/><rect x='6' y='18' width='5' height='8' fill='%23f4f4f1'/><rect x='13.5' y='12' width='5' height='14' fill='%23f4f4f1'/><rect x='21' y='6' width='5' height='20' fill='%23d0201a'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --papel: #f4f4f1; --papel-2: #ebebe6; --tinta: #111111; --tinta-2: #4a4a46; --tinta-3: #6e6e68;
+    --linea: #d4d4cd; --linea-suave: #e4e4de; --rojo: #d0201a; --rojo-claro: rgba(208, 32, 26, 0.13);
+    --azul: #1f5fbf; --max: 1180px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--papel); color: var(--tinta);
+    font-family: Archivo, "Helvetica Neue", Arial, sans-serif; font-size: 17px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { color: var(--rojo); }
+  :focus-visible { outline: 3px solid var(--rojo); outline-offset: 2px; }
+  .salto { position: absolute; left: -999px; }
+  .salto:focus { left: 16px; top: 16px; background: var(--tinta); color: var(--papel); padding: 8px 14px; z-index: 10; }
+  .envoltura { max-width: var(--max); margin: 0 auto; padding: 0 28px; }
+
+  /* Cabecera */
+  header.barra { border-bottom: 1px solid var(--tinta); position: sticky; top: 0; background: var(--papel); z-index: 5; }
+  header.barra .envoltura { display: flex; align-items: center; justify-content: space-between; gap: 20px; height: 60px; }
+  .marca { font-weight: 800; font-stretch: 110%; letter-spacing: -0.01em; text-decoration: none; }
+  .marca span { color: var(--rojo); }
+  header nav { display: flex; gap: 22px; font-size: 15px; }
+  header nav a { text-decoration: none; }
+
+  /* Portada */
+  .portada { padding: 56px 0 28px; border-bottom: 1px solid var(--linea); }
+  .etiqueta { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tinta-2); margin: 0 0 14px; }
+  h1 {
+    font-size: clamp(38px, 6.2vw, 78px); line-height: 0.98; letter-spacing: -0.03em; font-weight: 800;
+    font-stretch: 112%; margin: 0 0 22px; max-width: 18ch;
+  }
+  .entradilla { font-size: clamp(18px, 2vw, 22px); color: var(--tinta-2); max-width: 46ch; margin: 0; }
+  .cifras { display: grid; grid-template-columns: 1.3fr 1fr 1fr; border-top: 3px solid var(--tinta); margin-top: 40px; }
+  .cifra { padding: 18px 22px 18px 0; }
+  .cifra + .cifra { border-left: 1px solid var(--linea); padding-left: 22px; }
+  .cifra .valor { font-size: clamp(34px, 4.6vw, 54px); font-weight: 800; font-stretch: 108%; letter-spacing: -0.02em; line-height: 1; }
+  .cifra .valor.rojo { color: var(--rojo); }
+  .cifra .pie { font-size: 14px; color: var(--tinta-2); margin-top: 8px; max-width: 30ch; }
+  .actualizado { font-size: 14px; color: var(--tinta-3); margin-top: 18px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .punto { width: 8px; height: 8px; border-radius: 50%; background: #1a8a52; display: inline-block; }
+
+  section { padding: 56px 0; border-bottom: 1px solid var(--linea); }
+  h2 { font-size: clamp(28px, 3.6vw, 42px); line-height: 1.05; letter-spacing: -0.02em; font-weight: 800; font-stretch: 108%; margin: 0 0 12px; }
+  .sub { color: var(--tinta-2); max-width: 62ch; margin: 0 0 28px; }
+
+  /* Figuras */
+  figure { margin: 0; }
+  .controles { display: flex; gap: 0; margin-bottom: 14px; }
+  .controles button {
+    font: inherit; font-size: 14px; font-weight: 600; padding: 7px 14px; background: transparent;
+    border: 1px solid var(--tinta); color: var(--tinta); cursor: pointer;
+  }
+  .controles button + button { border-left: none; }
+  .controles button[aria-pressed="true"] { background: var(--tinta); color: var(--papel); }
+  .lienzo { position: relative; width: 100%; }
+  .lienzo svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .eje text { font-size: 12px; fill: var(--tinta-3); font-family: inherit; }
+  .eje line, .eje path { stroke: var(--linea); }
+  .rejilla line { stroke: var(--linea-suave); }
+  figcaption { font-size: 14px; color: var(--tinta-2); margin-top: 14px; max-width: 80ch; }
+  figcaption b { color: var(--tinta); }
+  figcaption .fuente { display: block; margin-top: 6px; color: var(--tinta-3); }
+  figcaption .fuente::before { content: ""; display: inline-block; width: 9px; height: 9px; background: var(--rojo); margin-right: 8px; }
+  .leyenda { display: flex; gap: 20px; flex-wrap: wrap; font-size: 14px; color: var(--tinta-2); margin: 0 0 10px; }
+  .leyenda i { display: inline-block; vertical-align: middle; margin-right: 7px; }
+  .l-real { width: 22px; height: 2px; background: var(--tinta); }
+  .l-prev { width: 22px; height: 3px; background: var(--rojo); }
+  .l-banda { width: 16px; height: 12px; background: var(--rojo-claro); }
+  .l-covid { width: 16px; height: 12px; background: var(--papel-2); border: 1px solid var(--linea); }
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--tinta); color: var(--papel); padding: 9px 12px;
+    font-size: 13.5px; line-height: 1.45; min-width: 150px; opacity: 0; transition: opacity .12s; z-index: 3;
+  }
+  .tooltip b { font-size: 15px; }
+  .tooltip .gris { color: #b8b8b0; }
+
+  /* Mes a mes */
+  .rejilla-mes { display: grid; grid-template-columns: 1.15fr 1fr; gap: 44px; align-items: start; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+  th { text-align: right; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tinta-2); padding: 8px 10px; border-bottom: 2px solid var(--tinta); }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; padding: 9px 10px; border-bottom: 1px solid var(--linea); white-space: nowrap; }
+  tbody tr.elegible { cursor: pointer; }
+  tbody tr.elegible:hover { background: var(--papel-2); }
+  tbody tr[aria-selected="true"] { background: var(--tinta); color: var(--papel); }
+  tbody tr[aria-selected="true"] .neg { color: #ff8a84; }
+  .neg { color: var(--rojo); }
+  .ss { font-size: 11px; font-weight: 700; border: 1px solid currentColor; padding: 0 4px; margin-left: 6px; letter-spacing: .04em; vertical-align: 1px; }
+  .panel { border-top: 3px solid var(--tinta); padding-top: 18px; position: sticky; top: 84px; }
+  .panel h3 { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 4px; font-stretch: 106%; }
+  .panel .grande { font-size: 15px; color: var(--tinta-2); margin: 0 0 18px; }
+  .factor { display: grid; grid-template-columns: 170px 1fr 58px; align-items: center; gap: 10px; font-size: 14px; margin: 7px 0; }
+  .factor .barra-f { position: relative; height: 16px; }
+  .factor .barra-f::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; border-left: 1px solid var(--tinta-3); }
+  .factor .barra-f span { position: absolute; top: 2px; height: 12px; }
+  .factor .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .nota { font-size: 13.5px; color: var(--tinta-3); margin-top: 16px; }
+
+  /* Precisión */
+  .dos { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; align-items: start; }
+  tr.final td { font-weight: 700; }
+  tr.final td:first-child::after { content: "modelo final"; font-size: 11px; font-weight: 700; color: var(--papel); background: var(--rojo); padding: 1px 6px; margin-left: 8px; letter-spacing: .03em; }
+  .deslizador { margin: 6px 0 18px; }
+  .deslizador label { display: block; font-size: 14px; color: var(--tinta-2); margin-bottom: 6px; }
+  .deslizador output { font-weight: 700; color: var(--tinta); }
+  input[type=range] { width: 100%; accent-color: var(--rojo); }
+  .marcador { display: flex; gap: 28px; font-size: 14px; color: var(--tinta-2); margin-top: 10px; flex-wrap: wrap; }
+  .marcador b { display: block; font-size: 28px; color: var(--tinta); font-weight: 800; letter-spacing: -0.01em; }
+
+  /* Método */
+  .pasos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 3px solid var(--tinta); }
+  .paso { padding: 18px 20px 4px 0; }
+  .paso + .paso { border-left: 1px solid var(--linea); padding-left: 20px; }
+  .paso .n { font-size: 13px; font-weight: 700; color: var(--rojo); letter-spacing: .06em; }
+  .paso h3 { font-size: 20px; margin: 6px 0 8px; font-weight: 800; }
+  .paso p { font-size: 15px; color: var(--tinta-2); margin: 0 0 12px; }
+  .enlaces { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .boton { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; font-weight: 700; text-decoration: none; border: 2px solid var(--tinta); }
+  .boton.lleno { background: var(--tinta); color: var(--papel); }
+  .boton.lleno:hover { background: var(--rojo); border-color: var(--rojo); color: #fff; }
+  .boton:hover { color: var(--rojo); }
+
+  footer { padding: 34px 0 48px; font-size: 14px; color: var(--tinta-3); }
+  footer .envoltura { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .error { padding: 40px 0; color: var(--rojo); font-weight: 700; }
+
+  @media (max-width: 900px) {
+    .rejilla-mes, .dos { grid-template-columns: 1fr; gap: 32px; }
+    .panel { position: static; }
+    .pasos { grid-template-columns: 1fr 1fr; }
+    .paso:nth-child(3) { border-left: none; padding-left: 0; }
+  }
+  @media (max-width: 620px) {
+    body { font-size: 16px; }
+    .envoltura { padding: 0 18px; }
+    header nav { display: none; }
+    .cifras { grid-template-columns: 1fr; }
+    .cifra + .cifra { border-left: none; padding-left: 0; border-top: 1px solid var(--linea); }
+    .pasos { grid-template-columns: 1fr; }
+    .paso + .paso { border-left: none; padding-left: 0; border-top: 1px solid var(--linea); }
+    .factor { grid-template-columns: 120px 1fr 50px; font-size: 13px; }
+    th, td { padding: 8px 5px; font-size: 13.5px; }
+    .ocultar-movil { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .tooltip { transition: none; } }
+</style>
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="barra">
+  <div class="envoltura">
+    <a class="marca" href="#top">Previsión turística <span>·</span> Costa Blanca</a>
+    <nav aria-label="Secciones">
+      <a href="#prevision">Previsión</a>
+      <a href="#mes-a-mes">Mes a mes</a>
+      <a href="#precision">Precisión</a>
+      <a href="#metodo">Método</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenido">
+  <div class="portada" id="top">
+    <div class="envoltura">
+      <p class="etiqueta">Proyecto de ciencia de datos · Alfredo Brocal Serrano</p>
+      <h1>¿Cuántas pernoctaciones tendrá la Costa Blanca?</h1>
+      <p class="entradilla">Previsión de las pernoctaciones en hoteles para los próximos 12 meses, con datos oficiales del INE
+        y un modelo que combina LightGBM y SARIMAX. Se actualiza sola cada mes.</p>
+      <div class="cifras" aria-live="polite">
+        <div class="cifra"><div class="valor rojo" id="c-total">—</div><div class="pie" id="c-total-pie">pernoctaciones previstas</div></div>
+        <div class="cifra"><div class="valor" id="c-var">—</div><div class="pie" id="c-var-pie">frente a los 12 meses anteriores</div></div>
+        <div class="cifra"><div class="valor" id="c-error">—</div><div class="pie">error medio del modelo en 2023–2026, previsiones a 1–12 meses</div></div>
+      </div>
+      <div class="actualizado"><span class="punto" aria-hidden="true"></span><span id="c-actualizado">Cargando datos…</span></div>
+    </div>
+  </div>
+
+  <section id="prevision">
+    <div class="envoltura">
+      <h2>La previsión</h2>
+      <p class="sub">Pernoctaciones hoteleras mensuales en la zona turística Costa Blanca. La parte roja es la previsión, con
+        su intervalo del 80 %: el valor real debería caer dentro en 8 de cada 10 meses.</p>
+      <div class="controles" role="group" aria-label="Periodo del gráfico">
+        <button type="button" data-anios="4" aria-pressed="true">Últimos años</button>
+        <button type="button" data-anios="10" aria-pressed="false">10 años</button>
+        <button type="button" data-anios="99" aria-pressed="false">Desde 1999</button>
+      </div>
+      <div class="leyenda" aria-hidden="true">
+        <span><i class="l-real"></i>Real</span><span><i class="l-prev"></i>Previsión</span>
+        <span><i class="l-banda"></i>Intervalo 80 %</span><span><i class="l-covid"></i>COVID</span>
+      </div>
+      <figure>
+        <div class="lienzo" id="g-prevision"></div>
+        <figcaption><b>Fig. 1</b> — Pernoctaciones hoteleras mensuales en la Costa Blanca y previsión a 12 meses. Pasa el
+          cursor por el gráfico para ver cada mes.
+          <span class="fuente">Fuente: INE, Encuesta de Ocupación Hotelera · modelo LightGBM + SARIMAX</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="mes-a-mes">
+    <div class="envoltura">
+      <h2>Mes a mes, y por qué</h2>
+      <p class="sub">Elige un mes para ver qué factores mueven su previsión. La explicación usa valores SHAP: cuánto suma o
+        resta cada factor al crecimiento respecto al mismo mes del año anterior.</p>
+      <div class="rejilla-mes">
+        <table aria-label="Previsión mes a mes">
+          <thead><tr><th>Mes</th><th>Previsión</th><th class="ocultar-movil">Intervalo 80 %</th><th>Año anterior</th><th>Variación</th></tr></thead>
+          <caption class="nota" style="caption-side:bottom;text-align:left">Cifras en miles de pernoctaciones. SS: mes con Semana Santa.</caption>
+          <tbody id="t-meses"></tbody>
+        </table>
+        <aside class="panel" id="panel" aria-live="polite"></aside>
+      </div>
+    </div>
+  </section>
+
+  <section id="precision">
+    <div class="envoltura">
+      <h2>¿Cuánto acierta?</h2>
+      <p class="sub">Cada modelo se ha probado como si se hubiera usado de verdad: en cada mes se entrena solo con los datos
+        que existían entonces y se prevén los 12 meses siguientes. Error medio absoluto en porcentaje (MAPE).</p>
+      <div class="dos">
+        <div>
+          <table aria-label="Error medio de cada modelo">
+            <thead><tr><th>Modelo</th><th>2015–2019</th><th>2023–2026</th></tr></thead>
+            <tbody id="t-precision"></tbody>
+          </table>
+          <p class="nota" id="nota-precision"></p>
+        </div>
+        <div>
+          <h3 style="font-size:22px;margin:0 0 4px;font-weight:800">Máquina del tiempo</h3>
+          <p class="nota" style="margin-top:0">Qué habría previsto el modelo final si lo hubiéramos usado en el pasado, frente a lo que pasó.</p>
+          <div class="deslizador">
+            <label for="r-origen">Previsión hecha con datos hasta: <output id="o-origen"></output></label>
+            <input type="range" id="r-origen" min="0" max="1" step="1">
+          </div>
+          <figure>
+            <div class="lienzo" id="g-pasada"></div>
+            <figcaption><b>Fig. 2</b> — Previsión pasada (rojo, con intervalo) frente a los datos reales (negro).</figcaption>
+          </figure>
+          <div class="marcador"><div><b id="m-error">—</b>error medio de esa previsión</div><div><b id="m-dentro">—</b>meses dentro del intervalo</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="metodo">
+    <div class="envoltura">
+      <h2>Cómo funciona</h2>
+      <p class="sub">Todo el código, los datos y los análisis están publicados en GitHub.</p>
+      <div class="pasos">
+        <div class="paso"><div class="n">01 · DATOS</div><h3>INE y Eurostat</h3>
+          <p>Encuesta de Ocupación Hotelera desde 1999 (Costa Blanca, Benidorm y provincia) y pasajeros del aeropuerto de
+            Alicante-Elche. Descarga por API, sin claves.</p></div>
+        <div class="paso"><div class="n">02 · MODELO</div><h3>LightGBM + SARIMAX</h3>
+          <p>LightGBM predice el crecimiento respecto al mismo mes del año anterior; SARIMAX, la serie con su estacionalidad
+            y la Semana Santa. La previsión final es la media de los dos.</p></div>
+        <div class="paso"><div class="n">03 · VALIDACIÓN</div><h3>Sin trampas</h3>
+          <p>Validación de origen móvil, variables elegidas en un periodo aparte (2010–2014) y evaluación final una sola vez,
+            en 2015–2019 y 2023–2026.</p></div>
+        <div class="paso"><div class="n">04 · ACTUALIZACIÓN</div><h3>Automática</h3>
+          <p>Una GitHub Action descarga cada mes los datos nuevos del INE, rehace la previsión y publica esta página.</p></div>
+      </div>
+      <div class="enlaces">
+        <a class="boton lleno" href="https://github.com/alfredobrocalserrano/prevision-turismo-costa-blanca">Código en GitHub →</a>
+        <a class="boton" href="https://github.com/alfredobrocalserrano/prevision-turismo-costa-blanca/blob/main/notebooks/02_eda.ipynb">Análisis exploratorio</a>
+        <a class="boton" href="https://github.com/alfredobrocalserrano/prevision-turismo-costa-blanca/blob/main/notebooks/04_lightgbm.ipynb">Modelo LightGBM</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="envoltura">
+    <span>© <span id="anio"></span> Alfredo Brocal Serrano · <a href="https://portfolio-alfredo-brocal.vercel.app/">Portfolio</a> ·
+      <a href="https://www.linkedin.com/in/alfredo-brocal-serrano-a0b1a73ab/">LinkedIn</a></span>
+    <span>Datos: INE (EOH) y Eurostat (avia_paoa). Previsiones orientativas.</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const MESES_L = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const nf = new Intl.NumberFormat("es-ES", { useGrouping: "always" });
+  const f1 = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const f2 = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const millones = v => f2.format(v / 1e6) + " M";
+  const miles = v => nf.format(Math.round(v / 1000)) + " mil";
+  const k = v => nf.format(Math.round(v / 1000));
+  const signo = v => (v > 0 ? "+" : v < 0 ? "−" : "") + f1.format(Math.abs(v)) + " %";
+  const fecha = s => { const [a, m] = s.split("-").map(Number); return new Date(Date.UTC(a, m - 1, 1)); };
+  const etiquetaMes = s => { const [a, m] = s.split("-").map(Number); return `${MESES[m - 1]} ${a}`; };
+  const etiquetaMesL = s => { const [a, m] = s.split("-").map(Number); return `${MESES_L[m - 1]} de ${a}`; };
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs = {}, padre) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (padre) padre.appendChild(e);
+    return e;
+  };
+  document.getElementById("anio").textContent = new Date().getFullYear();
+
+  /* ---------- Gráfico de líneas con banda y tooltip ---------- */
+  function grafico(contenedor, { real, prev, covid = [], alto = 420, inicio = null, origen = null }) {
+    contenedor.innerHTML = "";
+    const ancho = Math.max(contenedor.clientWidth, 320);
+    const M = { t: 12, r: 12, b: 30, l: 62 };
+    const W = ancho - M.l - M.r, H = alto - M.t - M.b;
+    const puntos = [...real, ...prev];
+    const x0 = inicio ? fecha(inicio) : fecha(puntos[0].fecha);
+    const x1 = fecha(puntos[puntos.length - 1].fecha);
+    const vis = puntos.filter(p => fecha(p.fecha) >= x0);
+    const ymax = Math.max(...vis.map(p => Math.max(p.valor ?? 0, p.sup ?? 0, p.pred ?? 0, p.real ?? 0))) * 1.06;
+    const X = d => M.l + (fecha(d) - x0) / (x1 - x0) * W;
+    const Y = v => M.t + H - v / ymax * H;
+
+    const svg = el("svg", { viewBox: `0 0 ${ancho} ${alto}`, role: "img",
+      "aria-label": "Gráfico de pernoctaciones mensuales reales y previstas" }, contenedor);
+
+    // rejilla y eje Y
+    const paso = ymax > 2e6 ? 500000 : ymax > 1e6 ? 250000 : 100000;
+    const gR = el("g", { class: "rejilla" }, svg), gY = el("g", { class: "eje" }, svg);
+    for (let v = 0; v <= ymax; v += paso) {
+      el("line", { x1: M.l, x2: M.l + W, y1: Y(v), y2: Y(v) }, gR);
+      const t = el("text", { x: M.l - 10, y: Y(v) + 4, "text-anchor": "end" }, gY);
+      t.textContent = v === 0 ? "0" : v >= 1e6 ? f2.format(v / 1e6).replace(/,?0+$/, "") + " M" : nf.format(v / 1000) + " k";
+    }
+    // COVID
+    const cv = covid.filter(c => fecha(c) >= x0);
+    if (cv.length) {
+      const a = X(cv[0]), b = X(cv[cv.length - 1]);
+      el("rect", { x: a, y: M.t, width: Math.max(b - a, 2), height: H, fill: "#ebebe6" }, svg);
+    }
+    // eje X: años
+    const gX = el("g", { class: "eje" }, svg);
+    el("line", { x1: M.l, x2: M.l + W, y1: M.t + H, y2: M.t + H }, gX);
+    const anios = (x1 - x0) / 31557600000;
+    const cada = anios > 16 ? 4 : anios > 8 ? 2 : 1;
+    for (let a = x0.getUTCFullYear(); a <= x1.getUTCFullYear(); a++) {
+      if (a % cada) continue;
+      const d = new Date(Date.UTC(a, 0, 1));
+      if (d < x0) continue;
+      const xx = M.l + (d - x0) / (x1 - x0) * W;
+      el("line", { x1: xx, x2: xx, y1: M.t + H, y2: M.t + H + 5 }, gX);
+      const t = el("text", { x: xx, y: M.t + H + 20, "text-anchor": "middle" }, gX);
+      t.textContent = a;
+    }
+    // banda de previsión
+    const pv = prev.filter(p => p.inf != null);
+    if (pv.length) {
+      const arriba = pv.map(p => `${X(p.fecha)},${Y(p.sup)}`).join(" ");
+      const abajo = pv.slice().reverse().map(p => `${X(p.fecha)},${Y(p.inf)}`).join(" ");
+      el("polygon", { points: arriba + " " + abajo, fill: "rgba(208,32,26,0.13)" }, svg);
+    }
+    // líneas
+    const linea = (serie, campo, attrs) => {
+      let d = "", dentro = false;
+      for (const p of serie) {
+        if (fecha(p.fecha) < x0 || p[campo] == null) { dentro = false; continue; }
+        d += (dentro ? "L" : "M") + X(p.fecha) + "," + Y(p[campo]);
+        dentro = true;
+      }
+      return el("path", { d, fill: "none", ...attrs }, svg);
+    };
+    linea(real, "valor", { stroke: "#111", "stroke-width": 1.8, "stroke-linejoin": "round" });
+    // conectar el último real con la primera previsión
+    const ultimoReal = real.filter(p => p.valor != null).slice(-1)[0];
+    // la previsión arranca en el último dato conocido (el origen)
+    const anclaFecha = origen || ultimoReal?.fecha;
+    const ancla = real.find(p => p.fecha === anclaFecha);
+    const prevLinea = ancla ? [{ fecha: ancla.fecha, pred: ancla.valor }, ...prev] : prev;
+    if (origen) {
+      el("line", { x1: X(origen), x2: X(origen), y1: M.t, y2: M.t + H, stroke: "#6e6e68", "stroke-dasharray": "3 3" }, svg);
+    }
+    linea(prevLinea, "pred", { stroke: "#d0201a", "stroke-width": 2.6, "stroke-linejoin": "round" });
+    for (const p of prev) if (p.pred != null) el("circle", { cx: X(p.fecha), cy: Y(p.pred), r: 3.2, fill: "#d0201a" }, svg);
+
+    // interacción
+    const tip = document.createElement("div");
+    tip.className = "tooltip"; tip.setAttribute("role", "status");
+    contenedor.appendChild(tip);
+    const guia = el("line", { y1: M.t, y2: M.t + H, stroke: "#111", "stroke-width": 1, opacity: 0 }, svg);
+    const marca = el("circle", { r: 5, fill: "#fff", stroke: "#111", "stroke-width": 2, opacity: 0 }, svg);
+    const todos = [...real.filter(p => p.valor != null && fecha(p.fecha) >= x0 && (!origen || p.fecha <= origen)).map(p => ({ ...p, tipo: "real" })),
+                   ...prev.map(p => ({ ...p, tipo: "prev" }))];
+    const zona = el("rect", { x: M.l, y: M.t, width: W, height: H, fill: "transparent" }, svg);
+    const mover = ev => {
+      const r = svg.getBoundingClientRect();
+      const px = (ev.clientX - r.left) * (ancho / r.width);
+      let mejor = null, dist = Infinity;
+      for (const p of todos) { const dd = Math.abs(X(p.fecha) - px); if (dd < dist) { dist = dd; mejor = p; } }
+      if (!mejor) return;
+      const v = mejor.tipo === "real" ? mejor.valor : mejor.pred;
+      guia.setAttribute("x1", X(mejor.fecha)); guia.setAttribute("x2", X(mejor.fecha)); guia.setAttribute("opacity", 0.25);
+      marca.setAttribute("cx", X(mejor.fecha)); marca.setAttribute("cy", Y(v)); marca.setAttribute("opacity", 1);
+      marca.setAttribute("stroke", mejor.tipo === "real" ? "#111" : "#d0201a");
+      let h = `<span class="gris">${etiquetaMes(mejor.fecha)}${mejor.tipo === "prev" ? " · previsión" : ""}</span><br><b>${nf.format(v)}</b>`;
+      if (mejor.tipo === "prev" && mejor.inf != null) h += `<br><span class="gris">80 %: ${miles(mejor.inf)} – ${miles(mejor.sup)}</span>`;
+      if (mejor.tipo === "prev" && mejor.real != null) h += `<br>Real: ${nf.format(mejor.real)} <span class="gris">(${signo((mejor.pred / mejor.real - 1) * 100)})</span>`;
+      if (mejor.covid) h += `<br><span class="gris">Periodo COVID</span>`;
+      tip.innerHTML = h;
+      const left = X(mejor.fecha) / ancho * r.width;
+      const tw = tip.offsetWidth || 170;
+      tip.style.left = (left > r.width * 0.55 ? Math.max(left - tw - 16, 0) : Math.min(left + 16, r.width - tw)) + "px";
+      tip.style.top = Math.max(Y(v) / alto * r.height - 70, 0) + "px";
+      tip.style.opacity = 1;
+    };
+    zona.addEventListener("pointermove", mover);
+    zona.addEventListener("pointerdown", mover);
+    zona.addEventListener("pointerleave", () => { tip.style.opacity = 0; guia.setAttribute("opacity", 0); marca.setAttribute("opacity", 0); });
+  }
+
+  /* ---------- Panel de explicación ---------- */
+  function explicar(p) {
+    const e = p.explicacion;
+    const maxAbs = Math.max(1, ...e.factores.map(f => Math.abs(f.puntos)));
+    const filas = e.factores.map(f => {
+      const w = Math.abs(f.puntos) / maxAbs * 50;
+      const izq = f.puntos >= 0 ? 50 : 50 - w;
+      const color = f.puntos >= 0 ? "#111" : "#d0201a";
+      return `<div class="factor"><span>${f.nombre}</span>
+        <span class="barra-f" aria-hidden="true"><span style="left:${izq}%;width:${w}%;background:${color}"></span></span>
+        <span class="num${f.puntos < 0 ? " neg" : ""}">${f.puntos > 0 ? "+" : "−"}${f1.format(Math.abs(f.puntos))}</span></div>`;
+    }).join("");
+    const ss = p.dias_semana_santa > 0 ? ` Ese mes tiene ${p.dias_semana_santa} ${p.dias_semana_santa === 1 ? "día" : "días"} de Semana Santa.` : "";
+    document.getElementById("panel").innerHTML = `
+      <h3>${etiquetaMesL(p.fecha).replace(/^./, c => c.toUpperCase())}</h3>
+      <p class="grande">Previsión: <b>${nf.format(p.pred)}</b> pernoctaciones, ${signo(p.var_pct)} frente al mismo mes del año anterior.${ss}</p>
+      <p style="font-size:14px;margin:0 0 6px;color:var(--tinta-2)">Factores que mueven la parte LightGBM (puntos de crecimiento):</p>
+      ${filas}
+      <p class="nota">LightGBM parte del crecimiento medio histórico (${signo(e.media_pct)}) y, con estos factores, prevé
+        ${signo(e.crec_lgbm_pct)}. La previsión final lo combina con SARIMAX. En negro, lo que suma; en rojo, lo que resta.</p>`;
+  }
+
+  /* ---------- Carga ---------- */
+  fetch("datos.json", { cache: "no-cache" })
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(D => {
+      const R = D.resumen, prev = D.prevision, P = D.precision;
+      const ini = prev[0].fecha, fin = prev[prev.length - 1].fecha;
+      document.getElementById("c-total").textContent = millones(R.total_previsto);
+      document.getElementById("c-total-pie").textContent =
+        `pernoctaciones hoteleras previstas de ${etiquetaMes(ini)} a ${etiquetaMes(fin)} (80 %: ${millones(R.total_inf)} – ${millones(R.total_sup)})`;
+      document.getElementById("c-var").textContent = signo((R.total_previsto / R.total_anterior - 1) * 100);
+      document.getElementById("c-var-pie").textContent = `frente a los 12 meses anteriores (${millones(R.total_anterior)})`;
+      const fila = P.tabla.find(t => t.final);
+      document.getElementById("c-error").textContent = f1.format(fila["2023–2026"]) + " %";
+      document.getElementById("c-actualizado").textContent =
+        `Datos del INE hasta ${etiquetaMesL(D.ultimo_dato)} · previsión generada el ${new Date(D.generado).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })} · se actualiza cada mes`;
+
+      // Fig. 1
+      const covid = D.historico.filter(h => h.covid).map(h => h.fecha);
+      const gp = document.getElementById("g-prevision");
+      let anios = 4;
+      const ultimo = fecha(D.ultimo_dato);
+      const pintar = () => {
+        const inicio = new Date(Date.UTC(ultimo.getUTCFullYear() - anios + 1, 0, 1)).toISOString().slice(0, 7);
+        grafico(gp, { real: D.historico, prev, covid, inicio: anios >= 99 ? null : inicio,
+                      alto: gp.clientWidth < 600 ? 300 : 420 });
+      };
+      document.querySelectorAll(".controles button").forEach(b => b.addEventListener("click", () => {
+        document.querySelectorAll(".controles button").forEach(x => x.setAttribute("aria-pressed", x === b));
+        anios = Number(b.dataset.anios); pintar();
+      }));
+
+      // Tabla mes a mes
+      const tb = document.getElementById("t-meses");
+      prev.forEach((p, i) => {
+        const tr = document.createElement("tr");
+        tr.className = "elegible"; tr.tabIndex = 0; tr.setAttribute("aria-selected", "false");
+        tr.innerHTML = `<td>${etiquetaMes(p.fecha)}${p.dias_semana_santa >= 5 ? '<span class="ss" title="Semana Santa">SS</span>' : ""}</td>
+          <td><b>${k(p.pred)}</b></td><td class="ocultar-movil">${k(p.inf)} – ${k(p.sup)}</td>
+          <td>${k(p.anterior)}</td><td class="${p.var_pct < 0 ? "neg" : ""}">${signo(p.var_pct)}</td>`;
+        const elegir = () => {
+          tb.querySelectorAll("tr").forEach(x => x.setAttribute("aria-selected", "false"));
+          tr.setAttribute("aria-selected", "true"); explicar(p);
+        };
+        tr.addEventListener("click", elegir);
+        tr.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); elegir(); } });
+        tb.appendChild(tr);
+      });
+      // por defecto, el mes con la variación más llamativa
+      const destacado = prev.reduce((a, b) => Math.abs(b.var_pct) > Math.abs(a.var_pct) ? b : a);
+      tb.children[prev.indexOf(destacado)].click();
+
+      // Tabla de precisión
+      document.getElementById("t-precision").innerHTML = P.tabla.map(t => {
+        const mejor = per => Math.min(...P.tabla.map(x => x[per])) === t[per] ? ' style="color:var(--rojo)"' : "";
+        return `<tr class="${t.final ? "final" : ""}"><td>${t.modelo}</td><td${mejor("2015–2019")}>${f2.format(t["2015–2019"])} %</td><td${mejor("2023–2026")}>${f2.format(t["2023–2026"])} %</td></tr>`;
+      }).join("");
+      document.getElementById("nota-precision").innerHTML =
+        `En rojo, el mejor de cada periodo. El machine learning <b>empata</b> con la mejor combinación clásica: cada una gana en
+         la mitad de los meses. LightGBM aporta menos error a 12 meses vista y menos sesgo. Su intervalo del 80 % contuvo el
+         valor real en el ${f1.format(P.cobertura["2023–2026"])} % de los casos en 2023–2026.`;
+
+      // Máquina del tiempo
+      const origenes = Object.keys(P.pasadas).sort();
+      const rango = document.getElementById("r-origen"), out = document.getElementById("o-origen");
+      rango.max = origenes.length - 1;
+      const def = origenes.indexOf("2025-09");
+      rango.value = def >= 0 ? def : origenes.length - 13;
+      const gpas = document.getElementById("g-pasada");
+      const pintarPasada = () => {
+        const o = origenes[Number(rango.value)];
+        out.textContent = etiquetaMesL(o);
+        const pr = P.pasadas[o];
+        const desde = new Date(Date.UTC(fecha(o).getUTCFullYear() - 1, fecha(o).getUTCMonth(), 1)).toISOString().slice(0, 7);
+        const hasta = pr[pr.length - 1].fecha;
+        const real = D.historico.filter(h => h.fecha >= desde && h.fecha <= hasta);
+        grafico(gpas, { real, prev: pr, alto: 300, origen: o });
+        const err = pr.reduce((s, p) => s + Math.abs(p.pred - p.real) / p.real, 0) / pr.length * 100;
+        const dentro = pr.filter(p => p.real >= p.inf && p.real <= p.sup).length;
+        document.getElementById("m-error").textContent = f1.format(err) + " %";
+        document.getElementById("m-dentro").textContent = `${dentro} de ${pr.length}`;
+      };
+      rango.addEventListener("input", pintarPasada);
+
+      const todo = () => { pintar(); pintarPasada(); };
+      todo();
+      let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(todo, 150); });
+    })
+    .catch(err => {
+      document.getElementById("c-actualizado").textContent = "No se han podido cargar los datos (" + err.message + ").";
+      document.getElementById("c-actualizado").className = "error";
+    });
+})();
+</script>
+</body>
+</html>

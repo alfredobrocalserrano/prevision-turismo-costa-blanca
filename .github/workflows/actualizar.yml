@@ -1,0 +1,47 @@
+name: Actualizar previsión
+
+# El INE publica la Encuesta de Ocupación Hotelera hacia el día 23 del mes siguiente.
+# El día 26 de cada mes se descargan los datos nuevos, se rehace la previsión y se publica la web.
+on:
+  schedule:
+    - cron: "0 7 26 * *"
+  workflow_dispatch:        # también se puede lanzar a mano desde la pestaña Actions
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install pandas duckdb requests python-dateutil statsmodels lightgbm pytest
+
+      - name: Descargar datos (INE y Eurostat)
+        run: python src/descarga.py
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Previsión y datos de la web
+        run: python src/publicar.py
+
+      - name: Guardar cambios
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/processed docs/datos.json
+          if git diff --staged --quiet; then
+            echo "Sin datos nuevos."
+          else
+            ULTIMO=$(python -c "import json; print(json.load(open('docs/datos.json'))['ultimo_dato'])")
+            git commit -m "Actualización mensual: datos del INE hasta $ULTIMO"
+            git push
+          fi
