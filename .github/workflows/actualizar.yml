@@ -22,7 +22,7 @@ jobs:
           cache: pip
 
       - name: Instalar dependencias
-        run: pip install pandas duckdb requests python-dateutil statsmodels lightgbm pytest
+        run: pip install pandas duckdb requests python-dateutil statsmodels lightgbm scikit-learn pytest
 
       - name: Descargar datos (INE y Eurostat)
         run: python src/descarga.py
