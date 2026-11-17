@@ -1,9 +1,11 @@
 # Previsión de pernoctaciones hoteleras en la Costa Blanca
 
-¿Cuántas pernoctaciones hoteleras tendrán Benidorm y la Costa Blanca en los próximos
-1–12 meses, y qué factores lo explican?
+¿Cuántas pernoctaciones hoteleras tendrá la Costa Blanca en los próximos 1–12 meses, y qué factores
+lo explican? Datos oficiales del INE desde 1999, modelos clásicos de series temporales frente a
+LightGBM con una evaluación justa, y una web que se actualiza sola cada mes.
 
-> Estado: **fase 4 de 5 (LightGBM)** completada.
+**🔗 Previsión en vivo: [alfredobrocalserrano.github.io/prevision-turismo-costa-blanca](https://alfredobrocalserrano.github.io/prevision-turismo-costa-blanca/)**
+— se actualiza sola cada mes con los datos nuevos del INE.
 
 ![Pernoctaciones hoteleras mensuales en la Costa Blanca](outputs/figuras/01_serie_completa.png)
 
@@ -86,6 +88,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 python src/descarga.py          # descarga, valida y guarda
+python src/publicar.py          # previsión y datos de la web (docs/datos.json)
 pytest                          # tests
 jupyter notebook notebooks/     # análisis
 ```
@@ -118,11 +121,21 @@ python src/descarga.py buscar 2039 "Costa"      # 2039 = zonas turísticas
 ```
 ├── data/          processed/ (CSV, incluidos para poder abrir el notebook sin descargar nada)
 │                  raw/ (JSON originales) y turismo.duckdb se generan con descarga.py y no se suben
+├── .github/       workflows/actualizar.yml (actualización mensual automática)
+├── docs/          index.html y datos.json: la web de GitHub Pages
 ├── notebooks/     02_eda.ipynb · 03_modelos_base.ipynb · 04_lightgbm.ipynb
-├── src/           descarga.py · backtest.py (validación de origen móvil) · modelos_base.py · modelo_lgbm.py
+├── src/           descarga.py · backtest.py (validación de origen móvil) · modelos_base.py
+│                  modelo_lgbm.py · publicar.py (datos de la web)
 ├── tests/
 └── outputs/       figuras y métricas
 ```
+
+## Actualización automática
+
+El día 26 de cada mes (el INE publica la encuesta hacia el 23), la GitHub Action
+[`actualizar.yml`](.github/workflows/actualizar.yml) descarga los datos nuevos, pasa los tests, rehace la
+previsión con el modelo final y publica la web. También se puede lanzar a mano desde la pestaña *Actions*.
+El backtesting y los notebooks no se recalculan cada mes.
 
 ## Fases
 
@@ -130,4 +143,4 @@ python src/descarga.py buscar 2039 "Costa"      # 2039 = zonas turísticas
 2. ~~Análisis exploratorio~~
 3. ~~Modelos de referencia: ingenuo estacional, ETS, SARIMA y combinación, con validación de origen móvil~~
 4. ~~LightGBM sobre el crecimiento interanual; selección en validación; intervalos cuantiles; SHAP~~
-5. App de previsión y sección en el portfolio
+5. ~~Web de previsión en GitHub Pages con actualización mensual automática (GitHub Actions)~~
