@@ -3,15 +3,18 @@
 ¿Cuántas pernoctaciones hoteleras tendrán Benidorm y la Costa Blanca en los próximos
 1–12 meses, y qué factores lo explican?
 
-> Estado: **fase 3 de 5 (modelos de referencia)** completada.
+> Estado: **fase 4 de 5 (LightGBM)** completada.
 
 ![Pernoctaciones hoteleras mensuales en la Costa Blanca](outputs/figuras/01_serie_completa.png)
 
-## Resultados de los modelos de referencia
+## Resultados
 
-Detalle completo en [`notebooks/03_modelos_base.ipynb`](notebooks/03_modelos_base.ipynb).
 Validación de origen móvil: en cada mes se entrena solo con los datos de entonces y se prevén los
-12 meses siguientes. Se evalúa en dos periodos.
+12 meses siguientes. Variables y parámetros de LightGBM elegidos en un periodo de validación aparte
+(2010–2014); los dos periodos de evaluación se miran una sola vez.
+
+Detalle en [`notebooks/03_modelos_base.ipynb`](notebooks/03_modelos_base.ipynb) (modelos clásicos) y
+[`notebooks/04_lightgbm.ipynb`](notebooks/04_lightgbm.ipynb) (LightGBM).
 
 | MAPE (previsiones a 1–12 meses) | 2015–2019 | 2023–2026 |
 |---|---|---|
@@ -19,17 +22,23 @@ Validación de origen móvil: en cada mes se entrena solo con los datos de enton
 | ETS (Holt-Winters) | 4,62 % | 3,61 % |
 | SARIMA (1,0,0)(1,1,1)₁₂ | 5,28 % | **3,34 %** |
 | SARIMAX + Semana Santa | 4,61 % | 3,61 % |
-| **Combinación ETS + SARIMAX** | **4,24 %** | 3,48 % |
+| Combinación ETS + SARIMAX | 4,24 % | **3,48 %** |
+| LightGBM (predice el crecimiento interanual) | 4,26 % | 3,83 % |
+| **LightGBM + SARIMAX** (modelo final) | **4,21 %** | 3,56 % |
 
-- Ningún modelo gana en los dos periodos; la **combinación** es la más robusta y es el listón para la fase 4.
-- El error apenas crece con el horizonte (3,25 % a 1 mes vista, 3,73 % a 12).
-- Todos se quedan cortos en los años de crecimiento fuerte (2016 y 2024).
-- La Semana Santa mejora mucho marzo y abril (de 5,3 % a 3,8 % en 2015–2019).
+- **El machine learning no gana a los modelos clásicos: empata.** LightGBM + SARIMAX y la combinación
+  ETS + SARIMAX se reparten los periodos, y cara a cara cada una gana en la mitad de los meses.
+- LightGBM aporta **menos error a 12 meses vista** (3,16 % frente a 3,73 % en 2023–2026), menos sesgo
+  e intervalos más útiles después del COVID.
+- Ningún modelo anticipa las aceleraciones de 2016 y 2024.
+- SHAP: LightGBM aprende el rebote de los meses atípicos, la inercia de los últimos 12 meses y el efecto
+  de la Semana Santa. El aeropuerto entra con un signo poco creíble y conviene revisarlo.
+- Con una sola serie mensual de 25 años, los modelos clásicos ya capturan casi toda la información.
 
-![Previsión oct 2026 – sep 2027](outputs/figuras/14_prevision_2026_2027.png)
+![Previsión oct 2026 – sep 2027](outputs/figuras/19_prevision_fase4.png)
 
-Previsión para octubre de 2026 – septiembre de 2027: **18,35 millones** de pernoctaciones (+0,5 %),
-en [`outputs/prevision_2026_2027.csv`](outputs/prevision_2026_2027.csv).
+Previsión para octubre de 2026 – septiembre de 2027: **18,36 millones** de pernoctaciones (+0,6 %),
+casi idéntica con los dos enfoques. En [`outputs/prevision_2026_2027_fase4.csv`](outputs/prevision_2026_2027_fase4.csv).
 
 ## Hallazgos del análisis exploratorio
 
@@ -101,16 +110,16 @@ python src/descarga.py buscar 2039 "Costa"      # 2039 = zonas turísticas
 | `calendario` | días del mes, fines de semana, Semana Santa, mes de Pascua, marca COVID |
 | `descargas` | registro de cada descarga (solo en DuckDB) |
 
-`outputs/` guarda las figuras, los resultados del backtesting (`backtest_fase3.csv`) y la previsión
-(`prevision_2026_2027.csv`).
+`outputs/` guarda las figuras, los resultados de validación y backtesting (`validacion_fase4_*.csv`,
+`backtest_fase3.csv`, `backtest_fase4.csv`) y las previsiones.
 
 ## Estructura
 
 ```
 ├── data/          processed/ (CSV, incluidos para poder abrir el notebook sin descargar nada)
 │                  raw/ (JSON originales) y turismo.duckdb se generan con descarga.py y no se suben
-├── notebooks/     02_eda.ipynb · 03_modelos_base.ipynb · 04_lightgbm (próxima fase)
-├── src/           descarga.py · backtest.py (validación de origen móvil) · modelos_base.py
+├── notebooks/     02_eda.ipynb · 03_modelos_base.ipynb · 04_lightgbm.ipynb
+├── src/           descarga.py · backtest.py (validación de origen móvil) · modelos_base.py · modelo_lgbm.py
 ├── tests/
 └── outputs/       figuras y métricas
 ```
@@ -120,5 +129,5 @@ python src/descarga.py buscar 2039 "Costa"      # 2039 = zonas turísticas
 1. ~~Datos: descarga y validación~~
 2. ~~Análisis exploratorio~~
 3. ~~Modelos de referencia: ingenuo estacional, ETS, SARIMA y combinación, con validación de origen móvil~~
-4. LightGBM con retardos, calendario y aeropuerto; intervalos de predicción; interpretación con SHAP
+4. ~~LightGBM sobre el crecimiento interanual; selección en validación; intervalos cuantiles; SHAP~~
 5. App de previsión y sección en el portfolio
