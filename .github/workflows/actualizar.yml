@@ -30,16 +30,27 @@ jobs:
       - name: Tests
         run: pytest -q
 
+      - name: ¿Hay datos nuevos?
+        id: cambios
+        run: |
+          if git diff --quiet -- data/processed; then
+            echo "nuevos=false" >> "$GITHUB_OUTPUT"; echo "Sin datos nuevos: no se publica nada."
+          else
+            echo "nuevos=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Previsión y datos de la web
+        if: steps.cambios.outputs.nuevos == 'true' || github.event_name == 'workflow_dispatch'
         run: python src/publicar.py
 
       - name: Guardar cambios
+        if: steps.cambios.outputs.nuevos == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/processed docs/datos.json
           if git diff --staged --quiet; then
-            echo "Sin datos nuevos."
+            echo "Sin cambios."
           else
             ULTIMO=$(python -c "import json; print(json.load(open('docs/datos.json'))['ultimo_dato'])")
             git commit -m "Actualización mensual: datos del INE hasta $ULTIMO"
